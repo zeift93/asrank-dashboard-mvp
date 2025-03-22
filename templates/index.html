@@ -192,6 +192,33 @@ window.onload = ()=>{
   document.getElementById('startMonth').value = past.toISOString().slice(0,7);
   loadDashboard(document.getElementById('requestorASN').value);
 };
+
+      // …existing dashboard load calls…
+    await loadCompetitorAnalysis(asn, startDate, endDate);
+    await loadPeeringDB(asn);
+    updateExportLinks(asn);
+
+    // ▼ INSERT ALERTS LOGIC HERE ▼
+    refreshAlerts(asn);
+
+    // Alert form handler
+    document.getElementById('alertForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const asnVal = document.getElementById('alertASN').value;
+      const threshold = document.getElementById('alertThreshold').value;
+      const direction = document.getElementById('alertDir').value;
+      await fetch('/api/alerts/', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({asn: asnVal, threshold_rank: threshold, direction})
+      });
+      refreshAlerts(asnVal);
+    });
+    // ▲ END ALERTS LOGIC ▲
+
+  };
+</script>
+
 </script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
