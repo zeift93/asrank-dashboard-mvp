@@ -79,6 +79,24 @@
     </div>
   </section>
 </div>
+<section id="alerts" class="mb-4">
+  <h2>Rank Alerts</h2>
+  <form id="alertForm" class="row g-2">
+    <div class="col-auto"><input type="number" id="alertASN" class="form-control" placeholder="ASN"></div>
+    <div class="col-auto"><input type="number" id="alertThreshold" class="form-control" placeholder="Threshold Rank"></div>
+    <div class="col-auto">
+      <select id="alertDir" class="form-select">
+        <option value="above">Above</option>
+        <option value="below">Below</option>
+      </select>
+    </div>
+    <div class="col-auto"><button class="btn btn-primary">Create Alert</button></div>
+  </form>
+  <hr>
+  <div id="alertsList"></div>
+</section>
+
+  
 
 <script>
 async function loadDashboard(asn) {
