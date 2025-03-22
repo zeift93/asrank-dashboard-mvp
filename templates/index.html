@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AS Rank Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-light bg-white fixed-top shadow-sm">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="#">AS Rank Dashboard</a>
+    <div class="d-flex ms-auto">
+      <input type="text" id="requestorASN" class="form-control me-2" value="7473" placeholder="ASN">
+      <button id="loadDashboardBtn" class="btn btn-primary me-2">Load</button>
+      <a id="btnExportRaw" class="btn btn-outline-primary me-2">Download Raw Cone</a>
+      <a id="btnExportAnalysis" class="btn btn-outline-secondary">Download Analysis</a>
+    </div>
+  </div>
+</nav>
+
+<div class="container-fluid main-content mt-5 pt-3">
+  <section id="dashboard-summary" class="mb-4">
+    <h2>Dashboard Summary for ASN <span id="displayASN">7473</span></h2>
+    <div class="row g-3">
+      <div class="col-md-3 card metric-card bg-primary text-white p-3">
+        <h5>Customer Cone Size</h5>
+        <p id="coneSizeMetric" class="display-4">—</p>
+      </div>
+      <div class="col-md-3 card metric-card bg-success text-white p-3">
+        <h5>Rank</h5>
+        <p id="rankMetric" class="display-4">—</p>
+      </div>
+      <div class="col-md-3 card metric-card bg-danger text-white p-3">
+        <h5>Lost Customers</h5>
+        <p id="lostEventsMetric" class="display-4">—</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="as-detail" class="mb-4">
+    <div class="row mb-3">
+      <div class="col-md-3">
+        <label>Start Month</label>
+        <input type="month" id="startMonth" class="form-control">
+      </div>
+      <div class="col-md-3">
+        <label>End Month</label>
+        <input type="month" id="endMonth" class="form-control">
+      </div>
+      <div class="col-md-3 align-self-end">
+        <button id="loadHistoricalBtn" class="btn btn-primary">Update Chart</button>
+      </div>
+    </div>
+    <div class="card shadow-sm p-3">
+      <canvas id="historicalChart" height="300"></canvas>
+    </div>
+  </section>
+
+  <section id="competitor-analysis" class="mb-4">
+    <h2>Lost Customer Analysis</h2>
+    <div id="lostCustomerAccordion" class="accordion"></div>
+  </section>
+
+  <section id="peeringdb-info" class="mb-4">
+    <h2>PeeringDB Info</h2>
+    <div class="row">
+      <div class="col-md-6">
+        <ul class="list-group" id="peeringdbBasic"></ul>
+      </div>
+      <div class="col-md-6">
+        <h5>Facilities</h5>
+        <table class="table"><tbody id="facList"></tbody></table>
+        <h5>IXPs</h5>
+        <table class="table"><tbody id="ixList"></tbody></table>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+async function loadDashboard(asn) {
+  document.getElementById('displayASN').innerText = asn;
+  const today = new Date().toISOString().slice(0,10);
+  await Promise.all([
+    loadASSummary(asn),
+    loadHistoricalChart(asn, document.getElementById('startMonth').value, document.getElementById('endMonth').value),
+    loadCompetitorAnalysis(asn, document.getElementById('startMonth').value+'-01', document.getElementById('endMonth').value+'-01'),
+    loadPeeringDB(asn),
+  ]);
+  updateExportLinks(asn);
+}
+
+async function loadASSummary(asn) {
+  const resp = await fetch(`/api/as/${asn}`);
+  const data = await resp.json();
+  document.getElementById('coneSizeMetric').innerText = data.cone_asn_count||'—';
+  document.getElementById('rankMetric').innerText = data.as_rank||'—';
+  document.getElementById('lostEventsMetric').innerText = data.lost_customer_count||'0';
+}
+
+async function loadHistoricalChart(asn, start, end) {
+  const resp = await fetch(`/api/historical?asn=${asn}&start_date=${start+'-01'}&end_date=${end+'-01'}`);
+  const data = await resp.json();
+  const labels = data.map(r => r.snapshot_date);
+  const cone = data.map(r => r.cone_asn_count);
+  const rank = data.map(r => r.as_rank);
+
+  if(window.historicalChart) window.historicalChart.destroy();
+  const ctx = document.getElementById('historicalChart').getContext('2d');
+  window.historicalChart = new Chart(ctx,{
+    type:'line',
+    data:{labels, datasets:[
+      {label:'Cone Size',data:cone,tension:0.3,yAxisID:'y'},
+      {label:'Rank',data:rank,tension:0.3,yAxisID:'y2'}
+    ]},
+    options:{
+      scales:{y:{position:'left'},y2:{position:'right',grid:{drawOnChartArea:false}}}
+    }
+  });
+}
+
+async function loadCompetitorAnalysis(asn, start, end) {
+  const resp = await fetch(`/api/competitor_analysis?requestor_asn=${asn}&start_date=${start}&end_date=${end}`);
+  const rows = await resp.json();
+  const container = document.getElementById('lostCustomerAccordion');
+  container.innerHTML = rows.map((r,i)=>`
+    <div class="accordion-item">
+      <h2 class="accordion-header">
+        <button class="accordion-button collapsed" data-bs-toggle="collapse" data-bs-target="#item${i}">
+          ${new Date(r.lost_month).toLocaleDateString()} — Lost ASN ${r.lost_asn} (Cone ${r.lost_cust_cone})
+        </button>
+      </h2>
+      <div id="item${i}" class="accordion-collapse collapse">
+        <div class="accordion-body">
+          Provider Qty: ${r.provider_quantity}<br>
+          New Provider Qty: ${r.new_provider_quantity}
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+async function loadPeeringDB(asn) {
+  const resp = await fetch(`/api/peeringdb/${asn}`);
+  const data = await resp.json();
+  document.getElementById('peeringdbBasic').innerHTML = `
+    <li class="list-group-item"><strong>Name:</strong> ${data.network_name||'—'}</li>
+    <li class="list-group-item"><strong>IX Count:</strong> ${data.ix_count||0}</li>
+    <li class="list-group-item"><strong>Facility Count:</strong> ${data.fac_count||0}</li>`;
+  document.getElementById('facList').innerHTML = data.netfac_set.map(f=>
+    `<tr><td>${f.name}</td><td>${f.city}, ${f.country}</td></tr>`).join('');
+  document.getElementById('ixList').innerHTML = data.netixlan_set.map(ix=>
+    `<tr><td>${ix.name}</td><td>${ix.port_size||'—'}</td></tr>`).join('');
+}
+
+function updateExportLinks(asn) {
+  const start = document.getElementById('startMonth').value+'-01';
+  const end   = document.getElementById('endMonth').value+'-01';
+  document.getElementById('btnExportRaw').href = `/export/raw-cone?asn=${asn}&date=${new Date().toISOString().slice(0,10)}`;
+  document.getElementById('btnExportAnalysis').href = `/export/cone-analysis?asn=${asn}&start_date=${start}&end_date=${end}`;
+}
+
+document.getElementById('loadDashboardBtn').addEventListener('click', ()=>{
+  const asn = document.getElementById('requestorASN').value;
+  loadDashboard(asn);
+});
+
+window.onload = ()=>{
+  const now = new Date();
+  document.getElementById('endMonth').value = now.toISOString().slice(0,7);
+  const past = new Date(now.setMonth(now.getMonth()-12));
+  document.getElementById('startMonth').value = past.toISOString().slice(0,7);
+  loadDashboard(document.getElementById('requestorASN').value);
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
