@@ -1,42 +1,36 @@
 from flask import Blueprint, request, jsonify
-from app.models import db
-from datetime import datetime
+from app.models import db, RankAlert, AlertHistory
 
 alerts_bp = Blueprint('alerts', __name__)
 
-# Example model classes (if not already defined in models.py)
-# from app.models import RankAlert, AlertHistory
-
 @alerts_bp.route('/', methods=['POST'])
 def create_alert():
-    data = request.get_json() or {}
+    data = request.get_json()
     asn = data.get('asn')
     threshold = data.get('threshold_rank')
     direction = data.get('direction')
-    if not asn or threshold is None or not direction:
-        return jsonify({"error": "asn, threshold_rank, and direction are required"}), 400
-    # Assume RankAlert is defined in your models as:
-    # class RankAlert(db.Model):
-    #    alert_id = db.Column(db.Integer, primary_key=True)
-    #    asn = db.Column(db.Integer, db.ForeignKey('dim_asn.asn'), nullable=False)
-    #    threshold_rank = db.Column(db.Integer, nullable=False)
-    #    direction = db.Column(db.Enum('above','below'), nullable=False)
-    #    enabled = db.Column(db.Boolean, default=True)
+    if not (asn and threshold is not None and direction in ('above','below')):
+        return jsonify(error="asn, threshold_rank, and direction required"), 400
     alert = RankAlert(asn=asn, threshold_rank=threshold, direction=direction)
     db.session.add(alert)
     db.session.commit()
-    return jsonify({"alert_id": alert.alert_id}), 201
+    return jsonify(alert_id=alert.alert_id), 201
 
-@alerts_bp.route('/history', methods=['GET'])
-def get_alert_history():
-    asn = request.args.get('asn')
-    if not asn:
-        return jsonify({"error": "asn is required"}), 400
-    alerts = AlertHistory.query.filter_by(asn=asn).order_by(AlertHistory.triggered_at.desc()).all()
-    history = [{
-        "alert_id": alert.alert_id,
-        "triggered_at": alert.triggered_at.isoformat(),
-        "old_rank": alert.old_rank,
-        "new_rank": alert.new_rank
-    } for alert in alerts]
-    return jsonify(history)
+@alerts_bp.route('/<int:asn>', methods=['GET'])
+def list_alerts(asn):
+    alerts = RankAlert.query.filter_by(asn=asn).all()
+    return jsonify([{
+        "alert_id": a.alert_id,
+        "threshold_rank": a.threshold_rank,
+        "direction": a.direction,
+        "enabled": a.enabled
+    } for a in alerts])
+
+@alerts_bp.route('/history/<int:alert_id>', methods=['GET'])
+def alert_history(alert_id):
+    entries = AlertHistory.query.filter_by(alert_id=alert_id).order_by(AlertHistory.triggered_at.desc()).all()
+    return jsonify([{
+        "triggered_at": e.triggered_at.isoformat(),
+        "old_rank": e.old_rank,
+        "new_rank": e.new_rank
+    } for e in entries])
