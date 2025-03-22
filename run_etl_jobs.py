@@ -1,13 +1,13 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import traceback
 from datetime import datetime
 from app import create_app
-from app.models import db, ETLJob
-from app.etl.caida import load_caida_data  # Your CAIDA ETL function
-from app.etl.cone_compute import compute_cone  # Your cone compute function
+from app.models import db, ETLJob, ASRankSnapshot, RankAlert, AlertHistory
+from app.etl.caida import load_caida_data
+from app.etl.cone_compute import compute_cone
 
 app = create_app()
-app.app_context().push()  # Required for standalone script
+app.app_context().push()
 
 def run_pending_jobs():
     pending_jobs = ETLJob.query.filter_by(status='pending').all()
@@ -17,10 +17,29 @@ def run_pending_jobs():
         db.session.commit()
         try:
             if job.job_type == 'asrank':
-                # Trigger CAIDA data load and bottom-up cone compute
+                # 1️⃣ Fetch CAIDA snapshot and compute local cone
                 load_caida_data(job.asn, job.date_id.isoformat())
                 compute_cone(job.asn, job.date_id)
-            # Future support for additional job types (e.g. radb, ripe, bgpview, cables) can be added here.
+
+                # 2️⃣ Trigger any rank alerts
+                snapshot = ASRankSnapshot.query.get((job.asn, job.date_id))
+                for alert in RankAlert.query.filter_by(asn=job.asn, enabled=True):
+                    triggered = False
+                    if alert.direction == 'above' and snapshot.caida_rank < alert.threshold_rank:
+                        triggered = True
+                    if alert.direction == 'below' and snapshot.caida_rank > alert.threshold_rank:
+                        triggered = True
+                    if triggered:
+                        db.session.add(AlertHistory(
+                            alert_id=alert.alert_id,
+                            triggered_at=datetime.utcnow(),
+                            old_rank=None,
+                            new_rank=snapshot.caida_rank
+                        ))
+                db.session.commit()
+
+            # TODO: handle other job_types (radb, ripe, bgpview, cables)
+
             job.status = 'complete'
         except Exception as e:
             job.status = 'error'
