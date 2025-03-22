@@ -35,3 +35,19 @@ class ETLJob(db.Model):
     error_msg = db.Column(db.Text)
 
 # Add other models similarly following the schema DDL
+class RankAlert(db.Model):
+    __tablename__ = 'rank_alerts'
+    alert_id = db.Column(db.Integer, primary_key=True)
+    asn = db.Column(db.Integer, db.ForeignKey('dim_asn.asn'), nullable=False)
+    threshold_rank = db.Column(db.Integer, nullable=False)
+    direction = db.Column(db.Enum('above','below'), nullable=False)
+    enabled = db.Column(db.Boolean, default=True)
+
+class AlertHistory(db.Model):
+    __tablename__ = 'alert_history'
+    history_id = db.Column(db.BigInteger, primary_key=True)
+    alert_id = db.Column(db.Integer, db.ForeignKey('rank_alerts.alert_id'), nullable=False)
+    triggered_at = db.Column(db.DateTime, nullable=False)
+    old_rank = db.Column(db.Integer)
+    new_rank = db.Column(db.Integer)
+
